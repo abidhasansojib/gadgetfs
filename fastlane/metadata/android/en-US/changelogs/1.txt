@@ -1,0 +1,8 @@
+## Changelog (v1.0)
+
+* Initial release
+* Root-based provisioning and activation of USB gadget roles via ConfigFS
+* HID keyboard and mouse gadget setup (function creation, linking, UDC bind/unbind)
+* Configurable gadget identity where supported (descriptors/strings)
+* Status reporting for gadget readiness and UDC binding
+* Safer teardown and cleanup to reduce partial/failed setup states

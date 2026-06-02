@@ -1,0 +1,1 @@
+USB gadget control for HID roles and ConfigFS provisioning

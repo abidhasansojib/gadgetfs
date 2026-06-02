@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand -->
+    <color name="gadget_midnight">#2c3e50</color>
+    <color name="gadget_cloud">#ecf0f1</color>
+
+    <!-- Window backgrounds -->
+    <color name="gadget_window_bg_light">#ecf0f1</color>
+
+    <!-- Must exist in base too (lint requirement). Night overrides it. -->
+    <color name="gadget_window_bg_dark">#2c3e50</color>
+</resources>

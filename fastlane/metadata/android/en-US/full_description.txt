@@ -1,0 +1,22 @@
+GadgetFS is a USB gadget management utility for provisioning and controlling USB device roles via ConfigFS. It is designed for technical users who need deterministic gadget lifecycle control, descriptor configuration, and reliable enable/disable of gadget functions for validation, debugging, or security-focused setups.
+
+When enabled, connected USB hosts identify the device strictly under the configured role(s), based on the descriptors and functions provisioned through ConfigFS.
+
+### Integrated gadget functions
+
+* **HID Keyboard / HID Mouse** (e.g., /dev/hidg0, /dev/hidg1)
+* Additional functions may be supported depending on kernel configuration and device nodes exposed by the system.
+
+### Capabilities
+
+* Provision and activate USB gadget functions using **ConfigFS**
+* Configure identifiers and descriptors (e.g., VID/PID, strings) where supported
+* Bind/unbind UDC reliably with clean teardown paths
+* Enable/disable gadget roles with explicit lifecycle states and status visibility
+
+### Requirements
+
+* **Root permissions are required**
+* A kernel with **USB gadget + ConfigFS** support is required (ConfigFS mounted and accessible)
+* Available gadget endpoints depend on kernel configuration (device nodes such as `/dev/hidg*` must exist)
+
