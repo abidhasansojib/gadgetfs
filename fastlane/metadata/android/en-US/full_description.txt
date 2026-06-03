@@ -1,22 +1,27 @@
-GadgetFS is a USB gadget management utility for provisioning and controlling USB device roles via ConfigFS. It is designed for technical users who need deterministic gadget lifecycle control, descriptor configuration, and reliable enable/disable of gadget functions for validation, debugging, or security-focused setups.
+<p>GadgetFS is a USB gadget management utility for provisioning and controlling USB device roles via ConfigFS. It is designed for technical users who need deterministic gadget lifecycle control, descriptor configuration, and reliable enable/disable of gadget functions for validation, debugging, or security-focused setups.</p>
 
-When enabled, connected USB hosts identify the device strictly under the configured role(s), based on the descriptors and functions provisioned through ConfigFS.
+<p>When enabled, connected USB hosts identify the device strictly under the configured role(s), based on the descriptors and functions provisioned through ConfigFS.</p>
 
-### Integrated gadget functions
+<h3>Integrated gadget functions</h3>
 
-* **HID Keyboard / HID Mouse** (e.g., /dev/hidg0, /dev/hidg1)
-* Additional functions may be supported depending on kernel configuration and device nodes exposed by the system.
+<ul>
+  <li><b>HID Keyboard / HID Mouse</b> (e.g., /dev/hidg0, /dev/hidg1)</li>
+  <li>Additional functions may be supported depending on kernel configuration and device nodes exposed by the system.</li>
+</ul>
 
-### Capabilities
+<h3>Capabilities</h3>
 
-* Provision and activate USB gadget functions using **ConfigFS**
-* Configure identifiers and descriptors (e.g., VID/PID, strings) where supported
-* Bind/unbind UDC reliably with clean teardown paths
-* Enable/disable gadget roles with explicit lifecycle states and status visibility
+<ul>
+  <li>Provision and activate USB gadget functions using <b>ConfigFS</b></li>
+  <li>Configure identifiers and descriptors (e.g., VID/PID, strings) where supported</li>
+  <li>Bind/unbind UDC reliably with clean teardown paths</li>
+  <li>Enable/disable gadget roles with explicit lifecycle states and status visibility</li>
+</ul>
 
-### Requirements
+<h3>Requirements</h3>
 
-* **Root permissions are required**
-* A kernel with **USB gadget + ConfigFS** support is required (ConfigFS mounted and accessible)
-* Available gadget endpoints depend on kernel configuration (device nodes such as `/dev/hidg*` must exist)
-
+<ul>
+  <li><b>Root permissions are required</b></li>
+  <li>A kernel with <b>USB gadget + ConfigFS</b> support is required (ConfigFS mounted and accessible)</li>
+  <li>Available gadget endpoints depend on kernel configuration (device nodes such as <code>/dev/hidg*</code> must exist)</li>
+</ul>
