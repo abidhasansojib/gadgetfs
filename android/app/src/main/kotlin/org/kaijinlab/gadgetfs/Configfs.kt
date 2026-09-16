@@ -31,6 +31,11 @@ object Configfs {
         _TARGET="${'$'}1"
         [ -d "${'$'}_TARGET" ] || return 0
         (echo "" > "${'$'}_TARGET/UDC") 2>/dev/null || true
+        (exec 3>&-) 2>/dev/null || true
+        (exec 4>&-) 2>/dev/null || true
+        if command -v fuser >/dev/null 2>&1; then
+          fuser -k /dev/hidg* 2>/dev/null || true
+        fi
         rm -f "${'$'}_TARGET"/configs/*/* 2>/dev/null || true
         for _d in "${'$'}_TARGET"/configs/*/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
         for _d in "${'$'}_TARGET"/configs/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
@@ -152,6 +157,11 @@ object Configfs {
         _TARGET="${'$'}1"
         [ -d "${'$'}_TARGET" ] || return 0
         (echo "" > "${'$'}_TARGET/UDC") 2>/dev/null || true
+        (exec 3>&-) 2>/dev/null || true
+        (exec 4>&-) 2>/dev/null || true
+        if command -v fuser >/dev/null 2>&1; then
+          fuser -k /dev/hidg* 2>/dev/null || true
+        fi
         rm -f "${'$'}_TARGET"/configs/*/* 2>/dev/null || true
         for _d in "${'$'}_TARGET"/configs/*/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
         for _d in "${'$'}_TARGET"/configs/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
@@ -175,6 +185,11 @@ object Configfs {
         _TARGET="${'$'}1"
         [ -d "${'$'}_TARGET" ] || return 0
         (echo "" > "${'$'}_TARGET/UDC") 2>/dev/null || true
+        (exec 3>&-) 2>/dev/null || true
+        (exec 4>&-) 2>/dev/null || true
+        if command -v fuser >/dev/null 2>&1; then
+          fuser -k /dev/hidg* 2>/dev/null || true
+        fi
         rm -f "${'$'}_TARGET"/configs/*/* 2>/dev/null || true
         for _d in "${'$'}_TARGET"/configs/*/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
         for _d in "${'$'}_TARGET"/configs/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done

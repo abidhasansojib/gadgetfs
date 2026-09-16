@@ -61,11 +61,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   GadgetProfile? _resolveSelectedProfile(
     List<GadgetProfile> profiles,
-    String? selectedId,
-  ) {
+    String? selectedId, [
+    String? activeId,
+  ]) {
     if (profiles.isEmpty) return null;
-    if (selectedId == null) return profiles.first;
-    return profiles.firstWhere((p) => p.id == selectedId, orElse: () => profiles.first);
+    final targetId = selectedId ?? activeId;
+    if (targetId == null) return profiles.first;
+    return profiles.firstWhere((p) => p.id == targetId, orElse: () => profiles.first);
   }
 
   @override
@@ -73,6 +75,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final profilesAsync = ref.watch(profilesProvider);
     final statusAsync = ref.watch(gadgetStatusStreamProvider);
     final selectedId = ref.watch(selectedProfileIdProvider);
+
+    final status = statusAsync.value;
+    if (status != null && status.activeProfileId != null && status.activeProfileId!.isNotEmpty) {
+      if (selectedId == null || (status.isActive && selectedId != status.activeProfileId)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ref.read(selectedProfileIdProvider.notifier).setSelected(status.activeProfileId);
+          }
+        });
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -159,7 +172,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, st) => _ErrorState(message: 'Failed to load profiles: $e'),
           data: (profiles) {
-            final selected = _resolveSelectedProfile(profiles, selectedId);
+            final activeId = statusAsync.value?.activeProfileId;
+            final selected = _resolveSelectedProfile(profiles, selectedId, activeId);
             return statusAsync.when(
               loading: () => const _LoadingState(),
               error: (e, st) => _ErrorState(
@@ -214,6 +228,7 @@ class _DashboardBody extends ConsumerWidget {
         if (status.isActive) {
           await backend.deactivate();
         } else if (selected != null) {
+          await selectedIdCtrl.setSelected(selected!.id);
           await backend.activateProfile(selected!);
         }
       } catch (e) {

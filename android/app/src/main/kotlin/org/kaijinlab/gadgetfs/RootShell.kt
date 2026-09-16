@@ -116,44 +116,44 @@ class RootShell(private val log: LogBus) {
             (exec $HID_FD_MOUSE>&-) 2>/dev/null || true
 
             # Wait briefly for device nodes to appear after binding (best-effort).
-            if [ -n "$${'$'}K" ]; then
+            if [ -n "${'$'}K" ]; then
               i=0
-              while [ $${'$'}i -lt 30 ] && [ ! -c "$${'$'}K" ]; do
+              while [ ${'$'}i -lt 30 ] && [ ! -c "${'$'}K" ]; do
                 sleep 0.05
-                i=$${'$'}((i+1))
+                i=${'$'}((i+1))
               done
             fi
 
-            if [ -n "$${'$'}M" ]; then
+            if [ -n "${'$'}M" ]; then
               i=0
-              while [ $${'$'}i -lt 30 ] && [ ! -c "$${'$'}M" ]; do
+              while [ ${'$'}i -lt 30 ] && [ ! -c "${'$'}M" ]; do
                 sleep 0.05
-                i=$${'$'}((i+1))
+                i=${'$'}((i+1))
               done
             fi
 
             chmod 666 /dev/hidg* 2>/dev/null || true
 
-            if [ -n "$${'$'}K" ] && [ -c "$${'$'}K" ]; then
-              exec $HID_FD_KBD> "$${'$'}K"
+            if [ -n "${'$'}K" ] && [ -c "${'$'}K" ]; then
+              exec $HID_FD_KBD> "${'$'}K"
             fi
 
-            if [ -n "$${'$'}M" ] && [ -c "$${'$'}M" ]; then
-              exec $HID_FD_MOUSE> "$${'$'}M"
+            if [ -n "${'$'}M" ] && [ -c "${'$'}M" ]; then
+              exec $HID_FD_MOUSE> "${'$'}M"
             fi
 
             FD3_OK=0
             FD4_OK=0
-            [ -e /proc/$$/fd/$HID_FD_KBD ] && FD3_OK=1 || true
-            [ -e /proc/$$/fd/$HID_FD_MOUSE ] && FD4_OK=1 || true
-            echo "FD3_OK=$${'$'}FD3_OK"
-            echo "FD4_OK=$${'$'}FD4_OK"
+            [ -e /proc/${'$'}${'$'}/fd/$HID_FD_KBD ] && FD3_OK=1 || true
+            [ -e /proc/${'$'}${'$'}/fd/$HID_FD_MOUSE ] && FD4_OK=1 || true
+            echo "FD3_OK=${'$'}FD3_OK"
+            echo "FD4_OK=${'$'}FD4_OK"
 
             # Succeed if requested writers are opened.
             ok=1
-            if [ -n "$${'$'}K" ] && [ "$${'$'}FD3_OK" != "1" ]; then ok=0; fi
-            if [ -n "$${'$'}M" ] && [ "$${'$'}FD4_OK" != "1" ]; then ok=0; fi
-            [ $${'$'}ok -eq 1 ]
+            if [ -n "${'$'}K" ] && [ "${'$'}FD3_OK" != "1" ]; then ok=0; fi
+            if [ -n "${'$'}M" ] && [ "${'$'}FD4_OK" != "1" ]; then ok=0; fi
+            [ ${'$'}ok -eq 1 ]
         """.trimIndent()
 
         val r = execDirect(script, timeoutSec)

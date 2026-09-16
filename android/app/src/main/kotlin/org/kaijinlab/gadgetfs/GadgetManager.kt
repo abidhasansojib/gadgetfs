@@ -117,9 +117,8 @@ class GadgetManager(
                 if (!stillActive) {
                     if (!discoverAndRecoverActiveGadget()) {
                         state = "IDLE"
-                        activeId = null
+                        activeId = prefs.activeProfileId
                         msg = null
-                        prefs.clearActive()
                         closeHidWritersBestEffort()
                         stopForeground()
                         log.log("gadget", "Gadget was unbound externally; state reset to IDLE")
@@ -140,12 +139,9 @@ class GadgetManager(
                         activeId = prefs.activeProfileId
                         msg = null
                     } else {
-                        if (!prefs.activeProfileId.isNullOrBlank() || !prefs.activeGadgetDir.isNullOrBlank()) {
-                            prefs.clearActive()
-                        }
                         if (state != "ACTIVATING") {
                             state = "IDLE"
-                            activeId = null
+                            activeId = prefs.activeProfileId
                         }
                     }
                 }
@@ -219,6 +215,10 @@ class GadgetManager(
         }
 
         setState("ACTIVATING", profile.id, "Creating gadget…")
+
+        // Crucial: close any open persistent writers in root shell before re-binding or recreating
+        closeHidWritersBestEffort()
+
         val snap = captureUsbSnapshot()
         prefs.setUsbSnapshot(
             sysUsbConfig = snap.sysUsbConfig,
@@ -229,15 +229,67 @@ class GadgetManager(
         )
 
         val gadgetDir = "gadgetfs_${profile.id.take(12).lowercase(Locale.US)}"
-        val script = Configfs.buildCreateAndBindScript(profile, gadgetDir)
-        val r = root.exec(script, timeoutSec = 30)
-        if (!r.ok) {
-            log.logError("gadget", "Activation failed; attempting USB restore")
-            restoreUsbSnapshotBestEffort(reason = "activation_failed")
-            prefs.clearUsbSnapshot()
-            setError("Activation failed (exit=${r.exitCode}). ${r.stderr.trim().ifEmpty { r.stdout.trim() }}")
-            return
+
+        val checkReuseScript = """
+            CFGBASE="/config/usb_gadget"
+            [ -d "${'$'}CFGBASE" ] || CFGBASE="/sys/kernel/config/usb_gadget"
+            G="${'$'}CFGBASE/$gadgetDir"
+            [ -d "${'$'}G" ] || exit 1
+            [ -d "${'$'}G/functions/hid.usb0" ] || exit 1
+            ${if (profile.roleType.lowercase(Locale.US) == "composite") "[ -d \"${'$'}G/functions/hid.usb1\" ] || exit 1" else ""}
+
+            UDC_NAME=${'$'}(getprop sys.usb.controller 2>/dev/null | tr -d '\r')
+            [ -z "${'$'}UDC_NAME" ] && UDC_NAME=${'$'}(ls -1 /sys/class/udc 2>/dev/null | head -n1 | tr -d '\r')
+            [ -z "${'$'}UDC_NAME" ] && exit 2
+
+            for U in "${'$'}CFGBASE"/*/UDC; do
+              [ -f "${'$'}U" ] || continue
+              [ "${'$'}U" = "${'$'}G/UDC" ] && continue
+              cur=${'$'}(cat "${'$'}U" 2>/dev/null | tr -d '\r')
+              [ "${'$'}cur" = "${'$'}UDC_NAME" ] && echo "" > "${'$'}U" 2>/dev/null || true
+            done
+
+            echo "${'$'}UDC_NAME" > "${'$'}G/UDC" 2>/dev/null || true
+            udc=${'$'}(cat "${'$'}G/UDC" 2>/dev/null | tr -d '\r\n')
+            [ -n "${'$'}udc" ] || exit 3
+
+            for fn in "${'$'}G"/functions/hid.*; do
+              [ -d "${'$'}fn" ] || continue
+              if [ -f "${'$'}fn/dev" ]; then
+                devpair=${'$'}(cat "${'$'}fn/dev" 2>/dev/null | tr -d '\r')
+                maj=${'$'}{devpair%:*}
+                min=${'$'}{devpair#*:}
+                node="/dev/hidg${'$'}min"
+                if [ ! -c "${'$'}node" ] && [ -n "${'$'}maj" ] && [ -n "${'$'}min" ]; then
+                  rm -f "${'$'}node" 2>/dev/null || true
+                  mknod "${'$'}node" c "${'$'}maj" "${'$'}min" 2>/dev/null || true
+                fi
+                chmod 666 "${'$'}node" 2>/dev/null || true
+              fi
+            done
+            chmod 666 /dev/hidg* 2>/dev/null || true
+            exit 0
+        """.trimIndent()
+
+        val reuseRes = root.exec(checkReuseScript, timeoutSec = 10)
+        val ready = if (reuseRes.ok) {
+            log.log("gadget", "Re-bound existing gadget directory: $gadgetDir")
+            true
+        } else {
+            val script = Configfs.buildCreateAndBindScript(profile, gadgetDir)
+            val r = root.exec(script, timeoutSec = 30)
+            if (!r.ok) {
+                log.logError("gadget", "Activation failed; attempting USB restore")
+                restoreUsbSnapshotBestEffort(reason = "activation_failed")
+                prefs.clearUsbSnapshot()
+                setError("Activation failed (exit=${r.exitCode}). ${r.stderr.trim().ifEmpty { r.stdout.trim() }}")
+                false
+            } else {
+                true
+            }
         }
+
+        if (!ready) return
 
         fun findHidDev(gDir: String, fnName: String, fallback: String): String {
             val s = "cat /config/usb_gadget/$gDir/functions/$fnName/dev 2>/dev/null || cat /sys/kernel/config/usb_gadget/$gDir/functions/$fnName/dev 2>/dev/null"
@@ -733,10 +785,10 @@ class GadgetManager(
         val safe = gadgetDir.replace("\"", "").replace("'", "")
         val script = """
             CFGBASE=/config/usb_gadget
-            [ -d "$${'$'}CFGBASE" ] || CFGBASE=/sys/kernel/config/usb_gadget
-            if [ -f "$${'$'}CFGBASE/$safe/UDC" ]; then
-              udc=$${'$'}(cat "$${'$'}CFGBASE/$safe/UDC" 2>/dev/null | tr -d '\r\n')
-              [ -n "$${'$'}udc" ]
+            [ -d "${'$'}CFGBASE" ] || CFGBASE=/sys/kernel/config/usb_gadget
+            if [ -f "${'$'}CFGBASE/$safe/UDC" ]; then
+              udc=${'$'}(cat "${'$'}CFGBASE/$safe/UDC" 2>/dev/null | tr -d '\r\n')
+              [ -n "${'$'}udc" ]
             else
               exit 1
             fi
@@ -754,71 +806,83 @@ class GadgetManager(
 
         val script = """
             CFGBASE="/config/usb_gadget"
-            if [ ! -d "$${'$'}CFGBASE" ]; then
+            if [ ! -d "${'$'}CFGBASE" ]; then
               CFGBASE="/sys/kernel/config/usb_gadget"
             fi
-            if [ ! -d "$${'$'}CFGBASE" ]; then
+            if [ ! -d "${'$'}CFGBASE" ]; then
               exit 1
             fi
 
             TARGET=""
             CHECK_DIR=${shQuote(safeSaved)}
-            if [ -n "$${'$'}CHECK_DIR" ] && [ -d "$${'$'}CFGBASE/$${'$'}CHECK_DIR" ]; then
-              if [ -f "$${'$'}CFGBASE/$${'$'}CHECK_DIR/UDC" ]; then
-                udc=$${'$'}(cat "$${'$'}CFGBASE/$${'$'}CHECK_DIR/UDC" 2>/dev/null | tr -d '\r\n')
-                if [ -n "$${'$'}udc" ]; then
-                  TARGET="$${'$'}CHECK_DIR"
-                fi
-              fi
+            if [ -n "${'$'}CHECK_DIR" ] && [ -d "${'$'}CFGBASE/${'$'}CHECK_DIR" ]; then
+              TARGET="${'$'}CHECK_DIR"
             fi
 
-            if [ -z "$${'$'}TARGET" ]; then
-              for g in "$${'$'}CFGBASE"/gadgetfs*; do
-                [ -d "$${'$'}g" ] || continue
-                if [ -f "$${'$'}g/UDC" ]; then
-                  udc=$${'$'}(cat "$${'$'}g/UDC" 2>/dev/null | tr -d '\r\n')
-                  if [ -n "$${'$'}udc" ]; then
-                    TARGET=$${'$'}(basename "$${'$'}g")
-                    break
-                  fi
-                fi
+            if [ -z "${'$'}TARGET" ]; then
+              for g in "${'$'}CFGBASE"/gadgetfs*; do
+                [ -d "${'$'}g" ] || continue
+                TARGET=${'$'}(basename "${'$'}g")
+                break
               done
             fi
 
-            if [ -z "$${'$'}TARGET" ]; then
+            if [ -z "${'$'}TARGET" ]; then
               exit 1
             fi
 
-            GDIR="$${'$'}CFGBASE/$${'$'}TARGET"
-            echo "GADGET_DIR=$${'$'}TARGET"
+            GDIR="${'$'}CFGBASE/${'$'}TARGET"
+            echo "GADGET_DIR=${'$'}TARGET"
 
-            if [ -f "$${'$'}GDIR/strings/0x409/serialnumber" ]; then
-              sn=$${'$'}(cat "$${'$'}GDIR/strings/0x409/serialnumber" 2>/dev/null | tr -d '\r\n')
-              echo "SERIAL=$${'$'}sn"
+            # Check if UDC is bound; if not, bind to the available controller
+            udc=${'$'}(cat "${'$'}GDIR/UDC" 2>/dev/null | tr -d '\r\n')
+            if [ -z "${'$'}udc" ]; then
+              UDC_NAME=${'$'}(getprop sys.usb.controller 2>/dev/null | tr -d '\r')
+              if [ -z "${'$'}UDC_NAME" ]; then
+                UDC_NAME=${'$'}(ls -1 /sys/class/udc 2>/dev/null | head -n 1 | tr -d '\r')
+              fi
+              if [ -n "${'$'}UDC_NAME" ]; then
+                for other in "${'$'}CFGBASE"/*; do
+                  [ -d "${'$'}other" ] || continue
+                  [ "${'$'}other" = "${'$'}GDIR" ] && continue
+                  if [ -f "${'$'}other/UDC" ]; then
+                    cur_u=${'$'}(cat "${'$'}other/UDC" 2>/dev/null | tr -d '\r')
+                    if [ "${'$'}cur_u" = "${'$'}UDC_NAME" ]; then
+                      echo "" > "${'$'}other/UDC" 2>/dev/null || true
+                    fi
+                  fi
+                done
+                echo "${'$'}UDC_NAME" > "${'$'}GDIR/UDC" 2>/dev/null || true
+              fi
             fi
 
-            for fn in "$${'$'}GDIR"/functions/hid.*; do
-              [ -d "$${'$'}fn" ] || continue
-              fname=$${'$'}(basename "$${'$'}fn")
+            if [ -f "${'$'}GDIR/strings/0x409/serialnumber" ]; then
+              sn=${'$'}(cat "${'$'}GDIR/strings/0x409/serialnumber" 2>/dev/null | tr -d '\r\n')
+              echo "SERIAL=${'$'}sn"
+            fi
+
+            for fn in "${'$'}GDIR"/functions/hid.*; do
+              [ -d "${'$'}fn" ] || continue
+              fname=${'$'}(basename "${'$'}fn")
               proto=""
               rlen=""
-              if [ -f "$${'$'}fn/protocol" ]; then
-                proto=$${'$'}(cat "$${'$'}fn/protocol" 2>/dev/null | tr -d '\r\n')
+              if [ -f "${'$'}fn/protocol" ]; then
+                proto=${'$'}(cat "${'$'}fn/protocol" 2>/dev/null | tr -d '\r\n')
               fi
-              if [ -f "$${'$'}fn/report_length" ]; then
-                rlen=$${'$'}(cat "$${'$'}fn/report_length" 2>/dev/null | tr -d '\r\n')
+              if [ -f "${'$'}fn/report_length" ]; then
+                rlen=${'$'}(cat "${'$'}fn/report_length" 2>/dev/null | tr -d '\r\n')
               fi
-              if [ -f "$${'$'}fn/dev" ]; then
-                devpair=$${'$'}(cat "$${'$'}fn/dev" 2>/dev/null | tr -d '\r\n')
-                maj=$${'$'}{devpair%:*}
-                min=$${'$'}{devpair#*:}
-                node="/dev/hidg$${'$'}min"
-                if [ ! -c "$${'$'}node" ] && [ -n "$${'$'}maj" ] && [ -n "$${'$'}min" ]; then
-                  rm -f "$${'$'}node" 2>/dev/null || true
-                  mknod "$${'$'}node" c "$${'$'}maj" "$${'$'}min" 2>/dev/null || true
+              if [ -f "${'$'}fn/dev" ]; then
+                devpair=${'$'}(cat "${'$'}fn/dev" 2>/dev/null | tr -d '\r\n')
+                maj=${'$'}{devpair%:*}
+                min=${'$'}{devpair#*:}
+                node="/dev/hidg${'$'}min"
+                if [ ! -c "${'$'}node" ] && [ -n "${'$'}maj" ] && [ -n "${'$'}min" ]; then
+                  rm -f "${'$'}node" 2>/dev/null || true
+                  mknod "${'$'}node" c "${'$'}maj" "${'$'}min" 2>/dev/null || true
                 fi
-                chmod 666 "$${'$'}node" 2>/dev/null || true
-                echo "HID_FN=$${'$'}fname:node=$${'$'}node:proto=$${'$'}proto:rlen=$${'$'}rlen"
+                chmod 666 "${'$'}node" 2>/dev/null || true
+                echo "HID_FN=${'$'}fname:node=${'$'}node:proto=${'$'}proto:rlen=${'$'}rlen"
               fi
             done
             chmod 666 /dev/hidg* 2>/dev/null || true
@@ -994,18 +1058,18 @@ class GadgetManager(
     private fun buildListBoundGadgetsScript(): String {
         return """
             CFGBASE="/config/usb_gadget"
-            if [ ! -d "$${'$'}CFGBASE" ]; then
+            if [ ! -d "${'$'}CFGBASE" ]; then
               CFGBASE="/sys/kernel/config/usb_gadget"
             fi
-            if [ ! -d "$${'$'}CFGBASE" ]; then
+            if [ ! -d "${'$'}CFGBASE" ]; then
               exit 0
             fi
-            for g in "$${'$'}CFGBASE"/*; do
-              [ -d "$${'$'}g" ] || continue
-              if [ -f "$${'$'}g/UDC" ]; then
-                udc=$${'$'}(cat "$${'$'}g/UDC" 2>/dev/null | tr -d '\r')
-                if [ -n "$${'$'}udc" ]; then
-                  echo "$${'$'}(basename "$${'$'}g"):$${'$'}udc"
+            for g in "${'$'}CFGBASE"/*; do
+              [ -d "${'$'}g" ] || continue
+              if [ -f "${'$'}g/UDC" ]; then
+                udc=${'$'}(cat "${'$'}g/UDC" 2>/dev/null | tr -d '\r')
+                if [ -n "${'$'}udc" ]; then
+                  echo "${'$'}(basename "${'$'}g"):${'$'}udc"
                 fi
               fi
             done
@@ -1054,15 +1118,15 @@ class GadgetManager(
             val entries = boundLines.joinToString("\n") { it }
             """
             CFGBASE="/config/usb_gadget"
-            if [ ! -d "$${'$'}CFGBASE" ]; then
+            if [ ! -d "${'$'}CFGBASE" ]; then
               CFGBASE="/sys/kernel/config/usb_gadget"
             fi
-            if [ -d "$${'$'}CFGBASE" ]; then
+            if [ -d "${'$'}CFGBASE" ]; then
               while IFS= read -r line; do
-                g=$${'$'}(echo "$${'$'}line" | cut -d: -f1)
-                u=$${'$'}(echo "$${'$'}line" | cut -d: -f2-)
-                if [ -n "$${'$'}g" ] && [ -n "$${'$'}u" ] && [ -f "$${'$'}CFGBASE/$${'$'}g/UDC" ]; then
-                  (echo "$${'$'}u" > "$${'$'}CFGBASE/$${'$'}g/UDC") 2>/dev/null || true
+                g=${'$'}(echo "${'$'}line" | cut -d: -f1)
+                u=${'$'}(echo "${'$'}line" | cut -d: -f2-)
+                if [ -n "${'$'}g" ] && [ -n "${'$'}u" ] && [ -f "${'$'}CFGBASE/${'$'}g/UDC" ]; then
+                  (echo "${'$'}u" > "${'$'}CFGBASE/${'$'}g/UDC") 2>/dev/null || true
                 fi
               done <<'EOF_BOUND'
             $entries
@@ -1080,27 +1144,27 @@ class GadgetManager(
             PREV_CFGFS=${shQuote(cfgfs)}
             PREV_PERSIST=${shQuote(pcfg)}
 
-            if [ -n "$${'$'}PREV_CFGFS" ]; then
-              setprop sys.usb.configfs "$${'$'}PREV_CFGFS" 2>/dev/null || true
+            if [ -n "${'$'}PREV_CFGFS" ]; then
+              setprop sys.usb.configfs "${'$'}PREV_CFGFS" 2>/dev/null || true
             fi
 
-            if [ -n "$${'$'}PREV_PERSIST" ]; then
-              setprop persist.sys.usb.config "$${'$'}PREV_PERSIST" 2>/dev/null || true
+            if [ -n "${'$'}PREV_PERSIST" ]; then
+              setprop persist.sys.usb.config "${'$'}PREV_PERSIST" 2>/dev/null || true
             fi
 
-            if [ -n "$${'$'}PREV_CFG" ]; then
+            if [ -n "${'$'}PREV_CFG" ]; then
               setprop sys.usb.config none 2>/dev/null || true
               sleep 0.1
-              setprop sys.usb.config "$${'$'}PREV_CFG" 2>/dev/null || true
+              setprop sys.usb.config "${'$'}PREV_CFG" 2>/dev/null || true
 
               i=0
-              while [ $${'$'}i -lt 80 ]; do
-                cur=$${'$'}(getprop sys.usb.state 2>/dev/null | tr -d '\r')
-                if [ "$${'$'}cur" = "$${'$'}PREV_CFG" ]; then
+              while [ ${'$'}i -lt 80 ]; do
+                cur=${'$'}(getprop sys.usb.state 2>/dev/null | tr -d '\r')
+                if [ "${'$'}cur" = "${'$'}PREV_CFG" ]; then
                   break
                 fi
                 sleep 0.1
-                i=$${'$'}((i+1))
+                i=${'$'}((i+1))
               done
             fi
 
@@ -1139,8 +1203,8 @@ class GadgetManager(
             fi
 
             CFG="/boot/config-`uname -r 2>/dev/null`"
-            if [ -r "$${'$'}CFG" ]; then
-              cat "$${'$'}CFG" 2>/dev/null \
+            if [ -r "${'$'}CFG" ]; then
+              cat "${'$'}CFG" 2>/dev/null \
                 | grep -i configfs \
                 | sed 's/^# //; s/ is not set/=NOT_SET/' || true
               exit 0

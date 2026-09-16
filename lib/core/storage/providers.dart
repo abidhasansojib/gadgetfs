@@ -69,7 +69,10 @@ class SelectedProfileIdController extends StateNotifier<String?> {
 
   Future<void> _init() async {
     final sp = await SharedPreferences.getInstance();
-    state = sp.getString(_key);
+    final saved = sp.getString(_key);
+    if (state == null && saved != null && saved.isNotEmpty) {
+      state = saved;
+    }
   }
 
   Future<void> setSelected(String? id) async {
