@@ -211,7 +211,7 @@ class _TouchpadScreenState extends ConsumerState<TouchpadScreen> {
                           onSelected: (_) => controller.toggleDragLock(),
                         ),
                         const Spacer(),
-                        IconButton.tonal(
+                        IconButton.filledTonal(
                           iconSize: 18,
                           visualDensity: VisualDensity.compact,
                           tooltip: 'Wheel Up',
@@ -219,7 +219,7 @@ class _TouchpadScreenState extends ConsumerState<TouchpadScreen> {
                           onPressed: () => controller.scroll(3),
                         ),
                         const SizedBox(width: 4),
-                        IconButton.tonal(
+                        IconButton.filledTonal(
                           iconSize: 18,
                           visualDensity: VisualDensity.compact,
                           tooltip: 'Wheel Down',

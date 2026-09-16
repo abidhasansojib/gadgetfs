@@ -72,7 +72,7 @@ class _TouchpadCardState extends ConsumerState<TouchpadCard> {
                     ],
                   ),
                 ),
-                IconButton.tonal(
+                IconButton.filledTonal(
                   iconSize: 20,
                   tooltip: 'Touchpad Settings',
                   icon: const Icon(Icons.tune),
@@ -137,7 +137,7 @@ class _TouchpadCardState extends ConsumerState<TouchpadCard> {
                         onSelected: (_) => _controller.toggleDragLock(),
                       ),
                       const Spacer(),
-                      IconButton.tonal(
+                      IconButton.filledTonal(
                         iconSize: 18,
                         visualDensity: VisualDensity.compact,
                         tooltip: 'Wheel Up',
@@ -145,7 +145,7 @@ class _TouchpadCardState extends ConsumerState<TouchpadCard> {
                         onPressed: () => _controller.scroll(3),
                       ),
                       const SizedBox(width: 4),
-                      IconButton.tonal(
+                      IconButton.filledTonal(
                         iconSize: 18,
                         visualDensity: VisualDensity.compact,
                         tooltip: 'Wheel Down',

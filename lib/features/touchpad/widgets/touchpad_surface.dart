@@ -375,7 +375,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (widget.onSettingsTap != null)
-                  IconButton.tonal(
+                  IconButton.filledTonal(
                     iconSize: 18,
                     visualDensity: VisualDensity.compact,
                     tooltip: 'Touchpad Settings',
@@ -384,7 +384,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
                   ),
                 if (widget.onFullscreenTap != null) ...[
                   const SizedBox(width: 6),
-                  IconButton.tonal(
+                  IconButton.filledTonal(
                     iconSize: 18,
                     visualDensity: VisualDensity.compact,
                     tooltip: widget.isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
