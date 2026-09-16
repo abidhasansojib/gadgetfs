@@ -118,7 +118,7 @@ class RootShell(private val log: LogBus) {
             # Wait briefly for device nodes to appear after binding (best-effort).
             if [ -n "$${'$'}K" ]; then
               i=0
-              while [ $${'$'}i -lt 60 ] && [ ! -e "$${'$'}K" ]; do
+              while [ $${'$'}i -lt 30 ] && [ ! -c "$${'$'}K" ]; do
                 sleep 0.05
                 i=$${'$'}((i+1))
               done
@@ -126,7 +126,7 @@ class RootShell(private val log: LogBus) {
 
             if [ -n "$${'$'}M" ]; then
               i=0
-              while [ $${'$'}i -lt 60 ] && [ ! -e "$${'$'}M" ]; do
+              while [ $${'$'}i -lt 30 ] && [ ! -c "$${'$'}M" ]; do
                 sleep 0.05
                 i=$${'$'}((i+1))
               done
@@ -134,11 +134,11 @@ class RootShell(private val log: LogBus) {
 
             chmod 666 /dev/hidg* 2>/dev/null || true
 
-            if [ -n "$${'$'}K" ]; then
+            if [ -n "$${'$'}K" ] && [ -c "$${'$'}K" ]; then
               exec $HID_FD_KBD> "$${'$'}K"
             fi
 
-            if [ -n "$${'$'}M" ]; then
+            if [ -n "$${'$'}M" ] && [ -c "$${'$'}M" ]; then
               exec $HID_FD_MOUSE> "$${'$'}M"
             fi
 

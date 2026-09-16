@@ -22,13 +22,20 @@ class GadgetForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NOTIF_ID, buildNotification(DEFAULT_TITLE))
+        try {
+            startForeground(NOTIF_ID, buildNotification(DEFAULT_TITLE))
+        } catch (_: Throwable) {
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: DEFAULT_TITLE
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIF_ID, buildNotification(title))
+        try {
+            startForeground(NOTIF_ID, buildNotification(title))
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(NOTIF_ID, buildNotification(title))
+        } catch (_: Throwable) {
+        }
         return START_STICKY
     }
 

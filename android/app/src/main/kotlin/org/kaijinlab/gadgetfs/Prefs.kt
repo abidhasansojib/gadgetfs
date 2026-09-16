@@ -73,7 +73,7 @@ class Prefs(context: Context) {
       .putString(KEY_ACTIVE_GADGET_DIR, gadgetDir)
       .putString(KEY_ACTIVE_KBD_DEV, keyboardDev)
       .putString(KEY_ACTIVE_MOUSE_DEV, mouseDev)
-      .apply()
+      .commit()
   }
 
   fun clearActive() {
@@ -83,7 +83,7 @@ class Prefs(context: Context) {
       .remove(KEY_ACTIVE_GADGET_DIR)
       .remove(KEY_ACTIVE_KBD_DEV)
       .remove(KEY_ACTIVE_MOUSE_DEV)
-      .apply()
+      .commit()
   }
 
   fun setUsbSnapshot(
@@ -99,7 +99,7 @@ class Prefs(context: Context) {
       .putString(KEY_PREV_SYS_USB_CONFIGFS, sysUsbConfigfs)
       .putString(KEY_PREV_PERSIST_SYS_USB_CONFIG, persistSysUsbConfig)
       .putString(KEY_PREV_BOUND_GADGETS, boundGadgets)
-      .apply()
+      .commit()
   }
 
   fun clearUsbSnapshot() {
@@ -109,7 +109,7 @@ class Prefs(context: Context) {
       .remove(KEY_PREV_SYS_USB_CONFIGFS)
       .remove(KEY_PREV_PERSIST_SYS_USB_CONFIG)
       .remove(KEY_PREV_BOUND_GADGETS)
-      .apply()
+      .commit()
   }
 
   companion object {

@@ -128,6 +128,7 @@ object Configfs {
           MINOR=${'$'}{DEV_PAIR#*:}
           NODE="/dev/hidg${'$'}MINOR"
           if [ ! -c "${'$'}NODE" ] && [ -n "${'$'}MAJOR" ] && [ -n "${'$'}MINOR" ]; then
+            rm -f "${'$'}NODE" 2>/dev/null || true
             mknod "${'$'}NODE" c "${'$'}MAJOR" "${'$'}MINOR" 2>/dev/null || true
           fi
           chmod 666 "${'$'}NODE" 2>/dev/null || true

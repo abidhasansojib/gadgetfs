@@ -27,6 +27,9 @@ class GadgetManager(
     private val HID_KBD_FD = 3
     private val HID_MOUSE_FD = 4
 
+    @Volatile private var inMemoryKbdDev: String? = null
+    @Volatile private var inMemoryMouseDev: String? = null
+
     @Volatile private var lastLoggedButtons: Int = -1
     @Volatile private var lastMouseMoveLogTime: Long = 0L
 
@@ -93,10 +96,10 @@ class GadgetManager(
     }
 
     fun getStatusSnapshot(): Status {
-        return refreshAndEmitStatus(restoreFromPrefs = false)
+        return refreshAndEmitStatus(restoreFromPrefs = true)
     }
 
-    fun refreshAndEmitStatus(restoreFromPrefs: Boolean): Status {
+    fun refreshAndEmitStatus(restoreFromPrefs: Boolean = true): Status {
         val current = statusRef.get()
         val rootOk = checkRoot()
         val configfsOk = rootOk && ensureConfigfsAvailable()
@@ -107,22 +110,50 @@ class GadgetManager(
         var activeId = current.activeProfileId
         var msg = current.message
 
-        if (restoreFromPrefs && state != "ACTIVE") {
-            val savedId = prefs.activeProfileId
-            val savedDir = prefs.activeGadgetDir
-            if (!savedId.isNullOrBlank() && !savedDir.isNullOrBlank() && rootOk) {
-                val stillActive = isGadgetDirBound(savedDir)
-                if (stillActive) {
-                    state = "ACTIVE"
-                    activeId = savedId
-                    msg = null
-                    log.log("gadget", "Restored active state for profile=$savedId")
-
-                    // Best-effort: re-open persistent HID writers after process restart.
-                    reopenHidWritersFromPrefsBestEffort()
+        if (rootOk) {
+            if (state == "ACTIVE") {
+                val activeDir = prefs.activeGadgetDir
+                val stillActive = !activeDir.isNullOrBlank() && isGadgetDirBound(activeDir)
+                if (!stillActive) {
+                    if (!discoverAndRecoverActiveGadget()) {
+                        state = "IDLE"
+                        activeId = null
+                        msg = null
+                        prefs.clearActive()
+                        closeHidWritersBestEffort()
+                        stopForeground()
+                        log.log("gadget", "Gadget was unbound externally; state reset to IDLE")
+                    } else {
+                        activeId = prefs.activeProfileId
+                    }
                 } else {
-                    prefs.clearActive()
+                    val kbd = inMemoryKbdDev ?: prefs.activeKeyboardDev
+                    val mouse = inMemoryMouseDev ?: prefs.activeMouseDev
+                    if ((kbd != null && !root.isKeyboardWriterReady()) || (mouse != null && !root.isMouseWriterReady())) {
+                        openHidWritersBestEffort(kbd, mouse)
+                    }
                 }
+            } else {
+                if (restoreFromPrefs) {
+                    if (discoverAndRecoverActiveGadget()) {
+                        state = "ACTIVE"
+                        activeId = prefs.activeProfileId
+                        msg = null
+                    } else {
+                        if (!prefs.activeProfileId.isNullOrBlank() || !prefs.activeGadgetDir.isNullOrBlank()) {
+                            prefs.clearActive()
+                        }
+                        if (state != "ACTIVATING") {
+                            state = "IDLE"
+                            activeId = null
+                        }
+                    }
+                }
+            }
+        } else {
+            if (state == "ACTIVE") {
+                state = "IDLE"
+                activeId = null
             }
         }
 
@@ -226,6 +257,8 @@ class GadgetManager(
             else -> findHidDev(gadgetDir, "hid.usb1", "/dev/hidg2") // composite: hid.usb1 is mouse
         }
 
+        inMemoryKbdDev = kbdDev
+        inMemoryMouseDev = mouseDev
         prefs.setActive(profile.id, profile.roleType, gadgetDir, kbdDev, mouseDev)
         startForeground("USB gadget active: ${profile.name}")
 
@@ -261,6 +294,8 @@ class GadgetManager(
 
         stopForeground()
         restoreUsbSnapshotBestEffort(reason = "deactivate")
+        inMemoryKbdDev = null
+        inMemoryMouseDev = null
         prefs.clearActive()
         prefs.clearUsbSnapshot()
 
@@ -289,6 +324,8 @@ class GadgetManager(
 
         stopForeground()
         restoreUsbSnapshotBestEffort(reason = "panic_stop")
+        inMemoryKbdDev = null
+        inMemoryMouseDev = null
         prefs.clearActive()
         prefs.clearUsbSnapshot()
 
@@ -298,8 +335,22 @@ class GadgetManager(
 
     fun testMouseMove(dx: Int, dy: Int, wheel: Int, buttons: Int) {
         val current = statusRef.get()
-        if (current.state != "ACTIVE") throw IllegalStateException("Gadget is not active")
-        val path = prefs.activeMouseDev ?: throw IllegalStateException("Mouse HID device not available")
+        if (current.state != "ACTIVE") {
+            if (!discoverAndRecoverActiveGadget()) {
+                throw IllegalStateException("Gadget is not active")
+            }
+            refreshAndEmitStatus(restoreFromPrefs = true)
+        }
+        var path = inMemoryMouseDev ?: prefs.activeMouseDev
+        if (path.isNullOrBlank()) {
+            discoverAndRecoverActiveGadget()
+            path = inMemoryMouseDev ?: prefs.activeMouseDev
+        }
+        if (path.isNullOrBlank()) throw IllegalStateException("Mouse HID device not available")
+
+        if (!root.isMouseWriterReady()) {
+            openHidWritersBestEffort(inMemoryKbdDev ?: prefs.activeKeyboardDev, path)
+        }
 
         val report = byteArrayOf(
             (buttons and 0xFF).toByte(),
@@ -332,8 +383,22 @@ class GadgetManager(
      */
     fun testKeyboardKey(keyLabel: String) {
         val current = statusRef.get()
-        if (current.state != "ACTIVE") throw IllegalStateException("Gadget is not active")
-        val path = prefs.activeKeyboardDev ?: throw IllegalStateException("Keyboard HID device not available")
+        if (current.state != "ACTIVE") {
+            if (!discoverAndRecoverActiveGadget()) {
+                throw IllegalStateException("Gadget is not active")
+            }
+            refreshAndEmitStatus(restoreFromPrefs = true)
+        }
+        var path = inMemoryKbdDev ?: prefs.activeKeyboardDev
+        if (path.isNullOrBlank()) {
+            discoverAndRecoverActiveGadget()
+            path = inMemoryKbdDev ?: prefs.activeKeyboardDev
+        }
+        if (path.isNullOrBlank()) throw IllegalStateException("Keyboard HID device not available")
+
+        if (!root.isKeyboardWriterReady()) {
+            openHidWritersBestEffort(path, inMemoryMouseDev ?: prefs.activeMouseDev)
+        }
 
         val trimmed = keyLabel.trimEnd('\r')
         if (trimmed.isEmpty()) return
@@ -354,8 +419,22 @@ class GadgetManager(
 
     fun testCtrlAltDel() {
         val current = statusRef.get()
-        if (current.state != "ACTIVE") throw IllegalStateException("Gadget is not active")
-        val path = prefs.activeKeyboardDev ?: throw IllegalStateException("Keyboard HID device not available")
+        if (current.state != "ACTIVE") {
+            if (!discoverAndRecoverActiveGadget()) {
+                throw IllegalStateException("Gadget is not active")
+            }
+            refreshAndEmitStatus(restoreFromPrefs = true)
+        }
+        var path = inMemoryKbdDev ?: prefs.activeKeyboardDev
+        if (path.isNullOrBlank()) {
+            discoverAndRecoverActiveGadget()
+            path = inMemoryKbdDev ?: prefs.activeKeyboardDev
+        }
+        if (path.isNullOrBlank()) throw IllegalStateException("Keyboard HID device not available")
+
+        if (!root.isKeyboardWriterReady()) {
+            openHidWritersBestEffort(path, inMemoryMouseDev ?: prefs.activeMouseDev)
+        }
 
         val mods = 0x01 or 0x04 // left-ctrl + left-alt
         val del = HidSpec.keyCodeFor("DELETE") ?: 0x4C
@@ -384,8 +463,8 @@ class GadgetManager(
     }
 
     private fun reopenHidWritersFromPrefsBestEffort() {
-        val kbdDev = prefs.activeKeyboardDev
-        val mouseDev = prefs.activeMouseDev
+        val kbdDev = inMemoryKbdDev ?: prefs.activeKeyboardDev
+        val mouseDev = inMemoryMouseDev ?: prefs.activeMouseDev
         if (kbdDev.isNullOrBlank() && mouseDev.isNullOrBlank()) return
         openHidWritersBestEffort(kbdDev, mouseDev)
     }
@@ -655,20 +734,199 @@ class GadgetManager(
         val script = """
             CFGBASE=/config/usb_gadget
             [ -d "$${'$'}CFGBASE" ] || CFGBASE=/sys/kernel/config/usb_gadget
-            test -f "$${'$'}CFGBASE/$safe/UDC" && test -s "$${'$'}CFGBASE/$safe/UDC"
+            if [ -f "$${'$'}CFGBASE/$safe/UDC" ]; then
+              udc=$${'$'}(cat "$${'$'}CFGBASE/$safe/UDC" 2>/dev/null | tr -d '\r\n')
+              [ -n "$${'$'}udc" ]
+            else
+              exit 1
+            fi
         """.trimIndent()
         val r = root.exec(script, timeoutSec = 5)
         return r.ok
     }
 
-    private fun startForeground(title: String) {
-        val intent = Intent(context, GadgetForegroundService::class.java).apply {
-            putExtra(GadgetForegroundService.EXTRA_TITLE, title)
+    private fun discoverAndRecoverActiveGadget(): Boolean {
+        if (!checkRoot()) return false
+        if (!ensureConfigfsAvailable()) return false
+
+        val savedDir = prefs.activeGadgetDir ?: ""
+        val safeSaved = savedDir.replace("\"", "").replace("'", "")
+
+        val script = """
+            CFGBASE="/config/usb_gadget"
+            if [ ! -d "$${'$'}CFGBASE" ]; then
+              CFGBASE="/sys/kernel/config/usb_gadget"
+            fi
+            if [ ! -d "$${'$'}CFGBASE" ]; then
+              exit 1
+            fi
+
+            TARGET=""
+            CHECK_DIR=${shQuote(safeSaved)}
+            if [ -n "$${'$'}CHECK_DIR" ] && [ -d "$${'$'}CFGBASE/$${'$'}CHECK_DIR" ]; then
+              if [ -f "$${'$'}CFGBASE/$${'$'}CHECK_DIR/UDC" ]; then
+                udc=$${'$'}(cat "$${'$'}CFGBASE/$${'$'}CHECK_DIR/UDC" 2>/dev/null | tr -d '\r\n')
+                if [ -n "$${'$'}udc" ]; then
+                  TARGET="$${'$'}CHECK_DIR"
+                fi
+              fi
+            fi
+
+            if [ -z "$${'$'}TARGET" ]; then
+              for g in "$${'$'}CFGBASE"/gadgetfs*; do
+                [ -d "$${'$'}g" ] || continue
+                if [ -f "$${'$'}g/UDC" ]; then
+                  udc=$${'$'}(cat "$${'$'}g/UDC" 2>/dev/null | tr -d '\r\n')
+                  if [ -n "$${'$'}udc" ]; then
+                    TARGET=$${'$'}(basename "$${'$'}g")
+                    break
+                  fi
+                fi
+              done
+            fi
+
+            if [ -z "$${'$'}TARGET" ]; then
+              exit 1
+            fi
+
+            GDIR="$${'$'}CFGBASE/$${'$'}TARGET"
+            echo "GADGET_DIR=$${'$'}TARGET"
+
+            if [ -f "$${'$'}GDIR/strings/0x409/serialnumber" ]; then
+              sn=$${'$'}(cat "$${'$'}GDIR/strings/0x409/serialnumber" 2>/dev/null | tr -d '\r\n')
+              echo "SERIAL=$${'$'}sn"
+            fi
+
+            for fn in "$${'$'}GDIR"/functions/hid.*; do
+              [ -d "$${'$'}fn" ] || continue
+              fname=$${'$'}(basename "$${'$'}fn")
+              proto=""
+              rlen=""
+              if [ -f "$${'$'}fn/protocol" ]; then
+                proto=$${'$'}(cat "$${'$'}fn/protocol" 2>/dev/null | tr -d '\r\n')
+              fi
+              if [ -f "$${'$'}fn/report_length" ]; then
+                rlen=$${'$'}(cat "$${'$'}fn/report_length" 2>/dev/null | tr -d '\r\n')
+              fi
+              if [ -f "$${'$'}fn/dev" ]; then
+                devpair=$${'$'}(cat "$${'$'}fn/dev" 2>/dev/null | tr -d '\r\n')
+                maj=$${'$'}{devpair%:*}
+                min=$${'$'}{devpair#*:}
+                node="/dev/hidg$${'$'}min"
+                if [ ! -c "$${'$'}node" ] && [ -n "$${'$'}maj" ] && [ -n "$${'$'}min" ]; then
+                  rm -f "$${'$'}node" 2>/dev/null || true
+                  mknod "$${'$'}node" c "$${'$'}maj" "$${'$'}min" 2>/dev/null || true
+                fi
+                chmod 666 "$${'$'}node" 2>/dev/null || true
+                echo "HID_FN=$${'$'}fname:node=$${'$'}node:proto=$${'$'}proto:rlen=$${'$'}rlen"
+              fi
+            done
+            chmod 666 /dev/hidg* 2>/dev/null || true
+            exit 0
+        """.trimIndent()
+
+        val r = root.exec(script, timeoutSec = 8)
+        if (!r.ok) {
+            return false
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(context, intent)
-        } else {
-            context.startService(intent)
+
+        var foundDir: String? = null
+        var foundSerial: String? = null
+        data class FnInfo(val name: String, val node: String, val proto: String, val rlen: String)
+        val hidFunctions = ArrayList<FnInfo>()
+
+        for (line in r.stdout.lineSequence()) {
+            val t = line.trim()
+            if (t.startsWith("GADGET_DIR=")) {
+                foundDir = t.removePrefix("GADGET_DIR=").trim()
+            } else if (t.startsWith("SERIAL=")) {
+                foundSerial = t.removePrefix("SERIAL=").trim()
+            } else if (t.startsWith("HID_FN=")) {
+                val parts = t.removePrefix("HID_FN=").split(':')
+                val fname = parts.getOrNull(0) ?: ""
+                var node = ""
+                var proto = ""
+                var rlen = ""
+                for (part in parts.drop(1)) {
+                    if (part.startsWith("node=")) node = part.removePrefix("node=")
+                    if (part.startsWith("proto=")) proto = part.removePrefix("proto=")
+                    if (part.startsWith("rlen=")) rlen = part.removePrefix("rlen=")
+                }
+                if (node.isNotEmpty()) {
+                    hidFunctions.add(FnInfo(fname, node, proto, rlen))
+                }
+            }
+        }
+
+        if (foundDir.isNullOrBlank()) return false
+
+        val savedId = prefs.activeProfileId
+        val resolvedProfileId = when {
+            !savedId.isNullOrBlank() -> savedId
+            !foundSerial.isNullOrBlank() && foundSerial.startsWith("GadgetFS:") -> foundSerial.removePrefix("GadgetFS:")
+            else -> foundDir.removePrefix("gadgetfs_")
+        }
+
+        var kbdDev: String? = null
+        var mouseDev: String? = null
+
+        for (fn in hidFunctions) {
+            if (fn.proto == "1" || fn.rlen == "8") {
+                kbdDev = fn.node
+            } else if (fn.proto == "2" || fn.rlen == "4") {
+                mouseDev = fn.node
+            } else if (fn.name == "hid.usb0" && hidFunctions.size > 1) {
+                kbdDev = fn.node
+            } else if (fn.name == "hid.usb1") {
+                mouseDev = fn.node
+            }
+        }
+
+        if (hidFunctions.size == 1) {
+            val single = hidFunctions[0]
+            val savedRole = prefs.activeRoleType?.lowercase(Locale.US)
+            if (kbdDev == null && mouseDev == null) {
+                if (savedRole == "mouse") {
+                    mouseDev = single.node
+                } else {
+                    kbdDev = single.node
+                }
+            }
+        }
+
+        if (kbdDev == null) kbdDev = prefs.activeKeyboardDev?.takeIf { root.exec("test -c $it").ok }
+        if (mouseDev == null) mouseDev = prefs.activeMouseDev?.takeIf { root.exec("test -c $it").ok }
+
+        val resolvedRoleType = when {
+            kbdDev != null && mouseDev != null -> "composite"
+            mouseDev != null -> "mouse"
+            kbdDev != null -> "keyboard"
+            else -> prefs.activeRoleType ?: "mouse"
+        }
+
+        inMemoryKbdDev = kbdDev
+        inMemoryMouseDev = mouseDev
+
+        prefs.setActive(resolvedProfileId, resolvedRoleType, foundDir, kbdDev, mouseDev)
+        openHidWritersBestEffort(kbdDev, mouseDev)
+        startForeground("USB gadget active: $resolvedRoleType")
+
+        log.log("gadget", "Recovered active gadget: dir=$foundDir profile=$resolvedProfileId role=$resolvedRoleType kbd=$kbdDev mouse=$mouseDev")
+        return true
+    }
+
+    private fun startForeground(title: String) {
+        try {
+            val intent = Intent(context, GadgetForegroundService::class.java).apply {
+                putExtra(GadgetForegroundService.EXTRA_TITLE, title)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(context, intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (t: Throwable) {
+            log.logError("gadget", "startForeground failed: ${t.message}")
         }
     }
 
