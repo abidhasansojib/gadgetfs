@@ -27,27 +27,52 @@ class _TouchpadNudgePanelState extends State<TouchpadNudgePanel> {
           children: [
             // Step size selector
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Nudge Step Size:',
+                  'Nudge Step Size',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                 ),
-                const Spacer(),
-                SegmentedButton<int>(
-                  segments: const [
-                    ButtonSegment(value: 1, label: Text('1px')),
-                    ButtonSegment(value: 5, label: Text('5px')),
-                    ButtonSegment(value: 25, label: Text('25px')),
-                    ButtonSegment(value: 100, label: Text('100px')),
-                  ],
-                  selected: {_stepSize},
-                  onSelectionChanged: (set) {
-                    if (set.isNotEmpty) setState(() => _stepSize = set.first);
-                  },
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_stepSize}px',
+                    style: TextStyle(
+                      color: cs.onPrimaryContainer,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<int>(
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                segments: const [
+                  ButtonSegment(value: 1, label: Text('1px')),
+                  ButtonSegment(value: 5, label: Text('5px')),
+                  ButtonSegment(value: 25, label: Text('25px')),
+                  ButtonSegment(value: 100, label: Text('100px')),
+                ],
+                selected: {_stepSize},
+                onSelectionChanged: (set) {
+                  if (set.isNotEmpty) setState(() => _stepSize = set.first);
+                },
+              ),
             ),
             const SizedBox(height: 16),
 

@@ -152,14 +152,13 @@ class _TouchpadCardState extends ConsumerState<TouchpadCard> {
                         icon: const Icon(Icons.arrow_drop_down),
                         onPressed: () => _controller.scroll(-3),
                       ),
-                      const SizedBox(width: 6),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
+                      const SizedBox(width: 4),
+                      IconButton.filledTonal(
+                        iconSize: 18,
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Expand Fullscreen',
+                        icon: const Icon(Icons.open_in_full),
                         onPressed: () => context.go('/touchpad'),
-                        icon: const Icon(Icons.open_in_full, size: 16),
-                        label: const Text('Expand'),
                       ),
                     ],
                   );
