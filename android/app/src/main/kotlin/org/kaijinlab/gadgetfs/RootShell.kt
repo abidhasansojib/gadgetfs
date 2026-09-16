@@ -111,9 +111,9 @@ class RootShell(private val log: LogBus) {
             K=${shQuote(k)}
             M=${shQuote(m)}
 
-            # Close any previous writer fds best-effort.
-            (exec $HID_FD_KBD>&-) 2>/dev/null || true
-            (exec $HID_FD_MOUSE>&-) 2>/dev/null || true
+            # Close any previous writer fds in the persistent shell.
+            exec $HID_FD_KBD>&- 2>/dev/null || true
+            exec $HID_FD_MOUSE>&- 2>/dev/null || true
 
             # Wait briefly for device nodes to appear after binding (best-effort).
             if [ -n "${'$'}K" ]; then
@@ -135,17 +135,24 @@ class RootShell(private val log: LogBus) {
             chmod 666 /dev/hidg* 2>/dev/null || true
 
             if [ -n "${'$'}K" ] && [ -c "${'$'}K" ]; then
-              exec $HID_FD_KBD> "${'$'}K"
+              exec $HID_FD_KBD> "${'$'}K" 2>/dev/null || true
             fi
 
             if [ -n "${'$'}M" ] && [ -c "${'$'}M" ]; then
-              exec $HID_FD_MOUSE> "${'$'}M"
+              exec $HID_FD_MOUSE> "${'$'}M" 2>/dev/null || true
             fi
 
+            # Reliably test whether the FDs are open for writing in this shell.
+            # ( : >&N ) succeeds if FD N is open, fails with EBADF if not.
+            # Also fallback to /proc/$$/fd if available.
             FD3_OK=0
             FD4_OK=0
-            [ -e /proc/${'$'}${'$'}/fd/$HID_FD_KBD ] && FD3_OK=1 || true
-            [ -e /proc/${'$'}${'$'}/fd/$HID_FD_MOUSE ] && FD4_OK=1 || true
+            if ( : >&$HID_FD_KBD ) 2>/dev/null || [ -e /proc/${'$'}${'$'}/fd/$HID_FD_KBD ]; then
+              FD3_OK=1
+            fi
+            if ( : >&$HID_FD_MOUSE ) 2>/dev/null || [ -e /proc/${'$'}${'$'}/fd/$HID_FD_MOUSE ]; then
+              FD4_OK=1
+            fi
             echo "FD3_OK=${'$'}FD3_OK"
             echo "FD4_OK=${'$'}FD4_OK"
 
@@ -175,8 +182,8 @@ class RootShell(private val log: LogBus) {
         mouseWriterReady = false
 
         val script = """
-            (exec $HID_FD_KBD>&-) 2>/dev/null || true
-            (exec $HID_FD_MOUSE>&-) 2>/dev/null || true
+            exec $HID_FD_KBD>&- 2>/dev/null || true
+            exec $HID_FD_MOUSE>&- 2>/dev/null || true
             echo "FD3_CLOSED=1"
             echo "FD4_CLOSED=1"
             true

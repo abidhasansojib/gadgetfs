@@ -53,6 +53,8 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
   int? _scrollStripPointer;
   double _stripWheelAccum = 0.0;
   double _twoFingerWheelAccum = 0.0;
+  double _fractionalDx = 0.0;
+  double _fractionalDy = 0.0;
 
   bool _isDoubleTapDragging = false;
   int _lastTapUpTime = 0;
@@ -99,6 +101,10 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     );
 
     if (_scrollStripPointer != event.pointer) {
+      if (_pointers.length <= 1) {
+        _fractionalDx = 0.0;
+        _fractionalDy = 0.0;
+      }
       if (_pointers.length == 1) {
         // Check double-tap drag
         final isRecentTap = (now - _lastTapUpTime) < 280;
@@ -130,6 +136,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     final now = DateTime.now().millisecondsSinceEpoch;
     final pos = event.localPosition;
     final delta = pos - record.lastPos;
+    final dt = (now - record.lastMs).clamp(4, 100);
 
     record.lastPos = record.currentPos;
     record.currentPos = pos;
@@ -175,7 +182,9 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
           if (widget.settings.hapticFeedback) HapticFeedback.selectionClick();
         }
       }
-      setState(() {});
+      if (widget.settings.showTouchPoints) {
+        setState(() {});
+      }
       return;
     }
 
@@ -183,19 +192,28 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     if (_pointers.length == 1) {
       final mag = delta.distance;
       double mult = widget.settings.sensitivity;
-      if (widget.settings.acceleration) {
-        // Non-linear acceleration: low speed = precise, high speed = swift navigation
-        final speedBonus = (mag / 8.0).clamp(0.0, 3.5);
+      if (widget.settings.acceleration && mag > 0) {
+        // Physical fingertip speed in px/ms (refresh rate independent)
+        final speedPxPerMs = mag / dt;
+        final speedBonus = ((speedPxPerMs - 0.25) / 0.5).clamp(0.0, 3.5);
         mult *= (1.0 + speedBonus * widget.settings.accelerationFactor * 0.45);
       }
 
-      final dx = (delta.dx * mult).round();
-      final dy = (delta.dy * mult).round();
+      // High-precision sub-pixel accumulator eliminates micro-stutter and stickiness
+      _fractionalDx += delta.dx * mult;
+      _fractionalDy += delta.dy * mult;
+
+      final dx = _fractionalDx.truncate();
+      final dy = _fractionalDy.truncate();
 
       if (dx != 0 || dy != 0) {
+        _fractionalDx -= dx;
+        _fractionalDy -= dy;
         widget.controller.sendDelta(dx: dx, dy: dy);
       }
-      setState(() {});
+      if (widget.settings.showTouchPoints) {
+        setState(() {});
+      }
     }
   }
 
@@ -250,6 +268,10 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     }
 
     _pointers.remove(event.pointer);
+    if (_pointers.isEmpty) {
+      _fractionalDx = 0.0;
+      _fractionalDy = 0.0;
+    }
     setState(() {});
   }
 
@@ -262,6 +284,10 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
       widget.controller.setButton(1, false);
     }
     _pointers.remove(event.pointer);
+    if (_pointers.isEmpty) {
+      _fractionalDx = 0.0;
+      _fractionalDy = 0.0;
+    }
     setState(() {});
   }
 

@@ -32,6 +32,7 @@ class GadgetManager(
 
     @Volatile private var lastLoggedButtons: Int = -1
     @Volatile private var lastMouseMoveLogTime: Long = 0L
+    @Volatile private var lastWriterAttemptMs: Long = 0L
 
     /**
      * Keyboard timing: we must hold a key "down" long enough that the host polling interval
@@ -401,7 +402,11 @@ class GadgetManager(
         if (path.isNullOrBlank()) throw IllegalStateException("Mouse HID device not available")
 
         if (!root.isMouseWriterReady()) {
-            openHidWritersBestEffort(inMemoryKbdDev ?: prefs.activeKeyboardDev, path)
+            val now = System.currentTimeMillis()
+            if (now - lastWriterAttemptMs > 4000L) {
+                lastWriterAttemptMs = now
+                openHidWritersBestEffort(inMemoryKbdDev ?: prefs.activeKeyboardDev, path)
+            }
         }
 
         val report = byteArrayOf(
@@ -449,7 +454,11 @@ class GadgetManager(
         if (path.isNullOrBlank()) throw IllegalStateException("Keyboard HID device not available")
 
         if (!root.isKeyboardWriterReady()) {
-            openHidWritersBestEffort(path, inMemoryMouseDev ?: prefs.activeMouseDev)
+            val now = System.currentTimeMillis()
+            if (now - lastWriterAttemptMs > 4000L) {
+                lastWriterAttemptMs = now
+                openHidWritersBestEffort(path, inMemoryMouseDev ?: prefs.activeMouseDev)
+            }
         }
 
         val trimmed = keyLabel.trimEnd('\r')
@@ -485,7 +494,11 @@ class GadgetManager(
         if (path.isNullOrBlank()) throw IllegalStateException("Keyboard HID device not available")
 
         if (!root.isKeyboardWriterReady()) {
-            openHidWritersBestEffort(path, inMemoryMouseDev ?: prefs.activeMouseDev)
+            val now = System.currentTimeMillis()
+            if (now - lastWriterAttemptMs > 4000L) {
+                lastWriterAttemptMs = now
+                openHidWritersBestEffort(path, inMemoryMouseDev ?: prefs.activeMouseDev)
+            }
         }
 
         val mods = 0x01 or 0x04 // left-ctrl + left-alt
@@ -586,14 +599,18 @@ class GadgetManager(
     }
 
     private fun releaseAllKeysBestEffort() {
-        val path = prefs.activeKeyboardDev ?: return
+        val path = inMemoryKbdDev ?: prefs.activeKeyboardDev ?: return
         val up = keyboardReport(0x00, 0x00)
         try {
-            writeKeyboardReportsWithDelays(
-                path,
-                reports = listOf(up, up, up),
-                delaysUs = listOf(0, 0)
-            )
+            if (root.isKeyboardWriterReady()) {
+                root.writeKeyboardFast(up)
+            } else {
+                writeKeyboardReportsWithDelays(
+                    path,
+                    reports = listOf(up),
+                    delaysUs = emptyList()
+                )
+            }
             log.log("kbd", "Sent all-keys-up before teardown")
         } catch (t: Throwable) {
             log.logError("kbd", "Failed to send all-keys-up: ${t.message}")
@@ -603,6 +620,20 @@ class GadgetManager(
     private fun writeKeyboardTap(path: String, mods: Int, key: Int, downHoldUs: Int) {
         val up = keyboardReport(0x00, 0x00)
         val down = keyboardReport(mods, key)
+
+        // Fast path: if keyboard writer is ready in persistent session, write directly!
+        if (root.isKeyboardWriterReady()) {
+            try {
+                root.writeKeyboardFast(down)
+                val holdMs = max(1L, (downHoldUs / 1000).toLong())
+                Thread.sleep(holdMs)
+                root.writeKeyboardFast(up)
+                return
+            } catch (t: Throwable) {
+                log.logError("kbd", "Fast keyboard tap failed, falling back: ${t.message}")
+            }
+        }
+
         // Sequence: up -> down -> (hold) -> up
         writeKeyboardReportsWithDelays(
             path,
@@ -656,15 +687,37 @@ class GadgetManager(
     }
 
     /**
-     * Writes multiple HID keyboard reports in a single root exec.
-     * With the persistent session, FD 3 may already be open (fast path).
-     * If FD 3 is not open in the child shell, we open it locally for this call.
+     * Writes multiple HID keyboard reports.
+     * - Fast path: writes reports directly into persistent FD 3 if ready.
+     * - Robust fallback: executes compound redirection block { ... } > "$P"
+     *   which opens "$P" once and NEVER relies on FD 3 or fails with bad file descriptor.
      */
     private fun writeKeyboardReportsWithDelays(path: String, reports: List<ByteArray>, delaysUs: List<Int>) {
         if (reports.isEmpty()) return
 
-        val useDirect = root.isKeyboardWriterReady()
+        // 1. Fast Path: write reports directly via persistent writer
+        if (root.isKeyboardWriterReady()) {
+            try {
+                for (i in reports.indices) {
+                    root.writeKeyboardFast(reports[i])
+                    if (i != reports.lastIndex) {
+                        val dUs = delaysUs.getOrNull(i) ?: 0
+                        if (dUs > 0) {
+                            val ms = (dUs / 1000).toLong()
+                            val ns = ((dUs % 1000) * 1000)
+                            if (ms > 0 || ns > 0) {
+                                Thread.sleep(ms, ns)
+                            }
+                        }
+                    }
+                }
+                return
+            } catch (t: Throwable) {
+                log.logError("kbd", "Keyboard fast-writer multi-report failed; falling back to compound script: ${t.message}")
+            }
+        }
 
+        // 2. Robust Fallback: POSIX compound redirection block { ... } > "$P"
         val usleepSnippet = """
           USLP=""
           if command -v toybox >/dev/null 2>&1 && toybox usleep 1 >/dev/null 2>&1; then
@@ -686,7 +739,7 @@ class GadgetManager(
         val writes = StringBuilder()
         for (i in reports.indices) {
             val hex = toHexEsc(reports[i])
-            writes.append("printf '%b' '").append(hex).append("' >&").append(HID_KBD_FD).append("\n")
+            writes.append("printf '%b' '").append(hex).append("'\n")
             if (i != reports.lastIndex) {
                 val d = delaysUs.getOrNull(i) ?: 0
                 if (d > 0) {
@@ -703,21 +756,17 @@ class GadgetManager(
             }
         }
 
-        val openLocal = if (useDirect) "" else "exec $HID_KBD_FD> \"${'$'}P\""
-        val closeLocal = if (useDirect) "" else "(exec $HID_KBD_FD>&-) 2>/dev/null || true"
-
         val script = """
           set -e
           P=${shQuote(path)}
           $usleepSnippet
-          $openLocal
 
+          {
           $writes
-
-          $closeLocal
+          } > "${'$'}P"
         """.trimIndent()
 
-        val r = if (useDirect) root.execDirect(script, timeoutSec = 8) else root.exec(script, timeoutSec = 8)
+        val r = root.exec(script, timeoutSec = 8)
         if (!r.ok) {
           val detail = r.stderr.trim().ifEmpty { r.stdout.trim() }
           throw IllegalStateException(

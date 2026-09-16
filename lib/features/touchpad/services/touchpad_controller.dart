@@ -71,8 +71,8 @@ class TouchpadController extends ChangeNotifier {
       }
 
       if (_accumDx != 0 || _accumDy != 0 || _accumWheel != 0) {
-        // Yield to prevent IPC flooding when handling large backlogs
-        await Future<void>.delayed(const Duration(milliseconds: 10));
+        // Yield to event loop to allow UI events to process without artificial delay
+        await Future<void>.delayed(Duration.zero);
       }
     }
     _isFlushing = false;
