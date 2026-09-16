@@ -327,13 +327,19 @@ class RootShell(private val log: LogBus) {
         return "'" + s.replace("'", "'\\''") + "'"
     }
 
+    private val HEX_CHARS = "0123456789abcdef".toCharArray()
+
     private fun toHexEsc(bytes: ByteArray): String {
-        val sb = StringBuilder(bytes.size * 4)
+        val chars = CharArray(bytes.size * 4)
+        var idx = 0
         for (b in bytes) {
             val v = b.toInt() and 0xFF
-            sb.append(String.format(java.util.Locale.US, "\\x%02x", v))
+            chars[idx++] = '\\'
+            chars[idx++] = 'x'
+            chars[idx++] = HEX_CHARS[v ushr 4]
+            chars[idx++] = HEX_CHARS[v and 0x0F]
         }
-        return sb.toString()
+        return String(chars)
     }
 
     /* ---------------- Persistent su session ---------------- */

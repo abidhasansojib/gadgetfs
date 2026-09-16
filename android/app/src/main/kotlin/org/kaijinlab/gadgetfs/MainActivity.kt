@@ -49,13 +49,21 @@ class MainActivity : FlutterActivity() {
 	            }
                 "testMouseMove" -> {
                     val args = (call.arguments as? Map<*, *>) ?: emptyMap<String, Any>()
-                    val dx = (args["dx"] as? Number)?.toInt() ?: 8
+                    val dx = (args["dx"] as? Number)?.toInt() ?: 0
                     val dy = (args["dy"] as? Number)?.toInt() ?: 0
                     val wheel = (args["wheel"] as? Number)?.toInt() ?: 0
                     val buttons = (args["buttons"] as? Number)?.toInt() ?: 0
-                    runAsync(result) {
-                        manager.testMouseMove(dx, dy, wheel, buttons)
-	                    null
+                    if (manager.isFastMouseReady()) {
+                        result.success(null)
+                        try {
+                            manager.testMouseMove(dx, dy, wheel, buttons)
+                        } catch (_: Throwable) {
+                        }
+                    } else {
+                        runAsync(result) {
+                            manager.testMouseMove(dx, dy, wheel, buttons)
+                            null
+                        }
                     }
                 }
                 "testKeyboardKey" -> {

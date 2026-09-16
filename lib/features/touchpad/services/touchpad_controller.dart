@@ -14,10 +14,10 @@ class TouchpadController extends ChangeNotifier {
   int _buttons = 0;
   bool _dragLock = false;
 
-  int _accumDx = 0;
-  int _accumDy = 0;
-  int _accumWheel = 0;
-  bool _isFlushing = false;
+  int _pendingDx = 0;
+  int _pendingDy = 0;
+  int _pendingWheel = 0;
+  bool _inFlight = false;
   bool _disposed = false;
 
   bool _isAutomatedTestRunning = false;
@@ -33,49 +33,49 @@ class TouchpadController extends ChangeNotifier {
   bool get isAutomatedTestRunning => _isAutomatedTestRunning;
   String? get activeTestName => _activeTestName;
 
-  /// Accumulate relative delta and trigger non-blocking flush loop.
+  /// Immediate dispatch relative delta with zero-delay chaining.
   void sendDelta({int dx = 0, int dy = 0, int wheel = 0}) {
     if (_disposed) return;
-    _accumDx += dx;
-    _accumDy += dy;
-    _accumWheel += wheel;
+    _pendingDx += dx;
+    _pendingDy += dy;
+    _pendingWheel += wheel;
 
-    if (!_isFlushing) {
-      _isFlushing = true;
-      unawaited(_runFlushLoop());
+    if (!_inFlight) {
+      _dispatchNext();
     }
   }
 
-  Future<void> _runFlushLoop() async {
-    while (!_disposed &&
-        (_accumDx != 0 || _accumDy != 0 || _accumWheel != 0)) {
-      final sendDx = _accumDx.clamp(-127, 127);
-      final sendDy = _accumDy.clamp(-127, 127);
-      final sendWheel = _accumWheel.clamp(-127, 127);
+  void _dispatchNext() {
+    if (_disposed || _inFlight) return;
+    if (_pendingDx == 0 && _pendingDy == 0 && _pendingWheel == 0) return;
 
-      _accumDx -= sendDx;
-      _accumDy -= sendDy;
-      _accumWheel -= sendWheel;
+    final sendDx = _pendingDx.clamp(-127, 127);
+    final sendDy = _pendingDy.clamp(-127, 127);
+    final sendWheel = _pendingWheel.clamp(-127, 127);
 
-      final currentBtns = effectiveButtons;
+    _pendingDx -= sendDx;
+    _pendingDy -= sendDy;
+    _pendingWheel -= sendWheel;
 
-      try {
-        await backend.testMouseMove(
+    _inFlight = true;
+    final currentBtns = effectiveButtons;
+
+    backend
+        .testMouseMove(
           dx: sendDx,
           dy: sendDy,
           wheel: sendWheel,
           buttons: currentBtns,
-        );
-      } catch (_) {
-        // Suppress failure during continuous movement; reported by status if inactive
+        )
+        .then((_) {
+      _inFlight = false;
+      if (!_disposed &&
+          (_pendingDx != 0 || _pendingDy != 0 || _pendingWheel != 0)) {
+        _dispatchNext();
       }
-
-      if (_accumDx != 0 || _accumDy != 0 || _accumWheel != 0) {
-        // Yield to event loop to allow UI events to process without artificial delay
-        await Future<void>.delayed(Duration.zero);
-      }
-    }
-    _isFlushing = false;
+    }).catchError((_) {
+      _inFlight = false;
+    });
   }
 
   /// Explicitly set button state (mask: 1=Left, 2=Right, 4=Middle).

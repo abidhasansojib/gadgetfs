@@ -55,6 +55,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
   double _twoFingerWheelAccum = 0.0;
   double _fractionalDx = 0.0;
   double _fractionalDy = 0.0;
+  double _smoothedVelocity = 0.0;
 
   bool _isDoubleTapDragging = false;
   int _lastTapUpTime = 0;
@@ -104,6 +105,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
       if (_pointers.length <= 1) {
         _fractionalDx = 0.0;
         _fractionalDy = 0.0;
+        _smoothedVelocity = 0.0;
       }
       if (_pointers.length == 1) {
         // Check double-tap drag
@@ -195,7 +197,11 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
       if (widget.settings.acceleration && mag > 0) {
         // Physical fingertip speed in px/ms (refresh rate independent)
         final speedPxPerMs = mag / dt;
-        final speedBonus = ((speedPxPerMs - 0.25) / 0.5).clamp(0.0, 3.5);
+        // Exponential moving average filter to smooth timestamp quantization
+        _smoothedVelocity = _smoothedVelocity == 0.0
+            ? speedPxPerMs
+            : (_smoothedVelocity * 0.65 + speedPxPerMs * 0.35);
+        final speedBonus = ((_smoothedVelocity - 0.25) / 0.5).clamp(0.0, 3.5);
         mult *= (1.0 + speedBonus * widget.settings.accelerationFactor * 0.45);
       }
 
@@ -271,6 +277,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     if (_pointers.isEmpty) {
       _fractionalDx = 0.0;
       _fractionalDy = 0.0;
+      _smoothedVelocity = 0.0;
     }
     setState(() {});
   }
@@ -287,6 +294,7 @@ class _TouchpadSurfaceState extends State<TouchpadSurface> {
     if (_pointers.isEmpty) {
       _fractionalDx = 0.0;
       _fractionalDy = 0.0;
+      _smoothedVelocity = 0.0;
     }
     setState(() {});
   }

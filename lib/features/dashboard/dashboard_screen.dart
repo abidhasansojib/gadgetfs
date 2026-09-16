@@ -585,8 +585,8 @@ class _KeyboardTestCardState extends State<_KeyboardTestCard> {
 
   void _scheduleFlush() {
     _flushTimer?.cancel();
-    // Small debounce to micro-batch and prevent onChanged re-entrancy races.
-    _flushTimer = Timer(const Duration(milliseconds: 45), _flushPending);
+    // Micro-debounce to batch rapid keystrokes without perceptible delay.
+    _flushTimer = Timer(const Duration(milliseconds: 12), _flushPending);
   }
 
   Future<void> _flushPending() async {

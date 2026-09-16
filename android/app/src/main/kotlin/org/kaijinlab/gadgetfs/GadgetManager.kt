@@ -35,12 +35,15 @@ class GadgetManager(
     @Volatile private var lastMouseMoveLogTime: Long = 0L
     @Volatile private var lastWriterAttemptMs: Long = 0L
 
+    fun isFastMouseReady(): Boolean = root.isMouseWriterReady() && inMemoryMouseDev != null
+    fun isFastKeyboardReady(): Boolean = root.isKeyboardWriterReady() && inMemoryKbdDev != null
+
     /**
      * Keyboard timing: we must hold a key "down" long enough that the host polling interval
-     * will actually observe it. This is why we do down -> usleep -> up.
+     * will actually observe it. 5ms is crisp and reliably captured by USB hosts.
      */
-    private val keyDownHoldUs: Int = 9000
-    private val interKeyDelayUs: Int = 1500
+    private val keyDownHoldUs: Int = 5000
+    private val interKeyDelayUs: Int = 1000
 
     /**
      * Avoid building extremely large scripts. We chunk text typing into batches.
@@ -730,11 +733,18 @@ class GadgetManager(
           fi
         """.trimIndent()
 
+        val hexChars = "0123456789abcdef".toCharArray()
         fun toHexEsc(bytes: ByteArray): String {
-            return bytes.joinToString(separator = "") { b ->
+            val chars = CharArray(bytes.size * 4)
+            var idx = 0
+            for (b in bytes) {
                 val v = b.toInt() and 0xFF
-                String.format(Locale.US, "\\x%02x", v)
+                chars[idx++] = '\\'
+                chars[idx++] = 'x'
+                chars[idx++] = hexChars[v ushr 4]
+                chars[idx++] = hexChars[v and 0x0F]
             }
+            return String(chars)
         }
 
         val writes = StringBuilder()
