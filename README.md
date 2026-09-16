@@ -15,7 +15,13 @@ An open-source ConfigFS USB gadget manager for rooted Android devices to configu
   - **Single Role**: Keyboard or Mouse on `/dev/hidg1`
   - Automatic `chmod 666 /dev/hidg*` node permission configuration.
 - **Descriptor Customization**: Customize VID/PID, product strings, manufacturer, and power attributes.
-- **Diagnostics & Testing**: Quick tests for keyboard keys, mouse movement, and status verification.
+- **Interactive Multi-Touch Touchpad**:
+  - Full-screen and inline trackpad controller with smooth cursor acceleration and non-blocking HID report queue.
+  - Full multi-touch gesture support: 1-finger tap (left click), double-tap drag (drag & drop/select), 2-finger scroll (wheel), 2-finger tap (right click), 3-finger tap (middle click).
+  - Tactile Left, Middle, and Right click buttons with haptic feedback.
+  - Dedicated edge scroll strip for instant thumb scrolling.
+  - Directional D-pad micro-nudging (1px, 5px, 25px, 100px) and automated pattern diagnostics (circle, square, jiggle).
+  - Customizable sensitivity, pointer acceleration curves, natural scrolling, and gesture settings.
 - **Clean Lifecycle Management**: Safe activation, teardown, and fallback restoration.
 
 ## Requirements

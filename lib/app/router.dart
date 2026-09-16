@@ -9,6 +9,7 @@ import '../features/device_info/device_info_screen.dart';
 import '../features/logs/logs_screen.dart';
 import '../features/profiles/profile_edit_screen.dart';
 import '../features/profiles/profiles_screen.dart';
+import '../features/touchpad/touchpad_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -18,6 +19,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'dashboard',
         builder: (context, state) => const DashboardScreen(),
         routes: [
+          GoRoute(
+            path: 'touchpad',
+            name: 'touchpad',
+            builder: (context, state) => const TouchpadScreen(),
+          ),
           GoRoute(
             path: 'profiles',
             name: 'profiles',

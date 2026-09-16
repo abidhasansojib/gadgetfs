@@ -27,6 +27,9 @@ class GadgetManager(
     private val HID_KBD_FD = 3
     private val HID_MOUSE_FD = 4
 
+    @Volatile private var lastLoggedButtons: Int = -1
+    @Volatile private var lastMouseMoveLogTime: Long = 0L
+
     /**
      * Keyboard timing: we must hold a key "down" long enough that the host polling interval
      * will actually observe it. This is why we do down -> usleep -> up.
@@ -299,7 +302,16 @@ class GadgetManager(
         )
 
         writeMouseReport(path, report)
-        log.log("test", "Mouse report to $path dx=$dx dy=$dy wheel=$wheel buttons=$buttons")
+        if (buttons != lastLoggedButtons) {
+            lastLoggedButtons = buttons
+            log.log("test", "Mouse buttons changed to $buttons at $path")
+        } else if (dx != 0 || dy != 0 || wheel != 0) {
+            val now = System.currentTimeMillis()
+            if (now - lastMouseMoveLogTime > 3000L) {
+                lastMouseMoveLogTime = now
+                log.log("test", "Mouse active -> $path (dx=$dx dy=$dy wheel=$wheel)")
+            }
+        }
     }
 
     /**

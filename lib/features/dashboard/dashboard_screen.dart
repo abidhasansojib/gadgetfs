@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +12,7 @@ import '../../core/models/gadget_status.dart';
 import '../../core/storage/providers.dart';
 import '../../shared/widgets/section_card.dart';
 import '../../shared/widgets/status_pill.dart';
+import '../touchpad/widgets/touchpad_card.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -82,6 +82,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             tooltip: 'Menu',
             onSelected: (v) {
               switch (v) {
+                case 'touchpad':
+                  context.go('/touchpad');
+                  break;
                 case 'profiles':
                   context.go('/profiles');
                   break;
@@ -97,6 +100,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               }
             },
             itemBuilder: (ctx) => const [
+              PopupMenuItem(
+                value: 'touchpad',
+                child: Row(
+                  children: [
+                    Icon(Icons.mouse),
+                    SizedBox(width: 10),
+                    Text('Touchpad'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'profiles',
                 child: Row(
@@ -412,6 +425,14 @@ class _DashboardBody extends ConsumerWidget {
               const SizedBox(height: 12),
               ListTile(
                 contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.mouse_outlined),
+                title: const Text('Touchpad Controller'),
+                subtitle: const Text('Full-screen trackpad with multi-touch gestures and scroll controls'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/touchpad'),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.bug_report_outlined),
                 title: const Text('Diagnostics'),
                 subtitle: Text('UDCs: ${status.udcList.isEmpty ? 'none' : status.udcList.join(', ')}'),
@@ -471,7 +492,7 @@ class _QuickTestsPanelState extends State<_QuickTestsPanel> {
               children: [
                 Expanded(child: _KeyboardTestCard(backend: widget.backend)),
                 const SizedBox(width: 12),
-                Expanded(child: _MouseTestCard(backend: widget.backend)),
+                Expanded(child: TouchpadCard(backend: widget.backend)),
               ],
             );
           }
@@ -479,14 +500,14 @@ class _QuickTestsPanelState extends State<_QuickTestsPanel> {
             children: [
               _KeyboardTestCard(backend: widget.backend),
               const SizedBox(height: 12),
-              _MouseTestCard(backend: widget.backend),
+              TouchpadCard(backend: widget.backend),
             ],
           );
         },
       );
     }
     if (_showKeyboard) return _KeyboardTestCard(backend: widget.backend);
-    return _MouseTestCard(backend: widget.backend);
+    return TouchpadCard(backend: widget.backend);
   }
 }
 
@@ -721,263 +742,6 @@ class _KeyboardTestCardState extends State<_KeyboardTestCard> {
       ),
     );
   }
-}
-
-class _MouseTestCard extends StatefulWidget {
-  final GadgetBackend backend;
-  const _MouseTestCard({required this.backend});
-
-  @override
-  State<_MouseTestCard> createState() => _MouseTestCardState();
-}
-
-class _MouseTestCardState extends State<_MouseTestCard> {
-  Offset? _lastPos;
-  int _buttons = 0;
-
-  // Accumulate deltas so throttling does not lose distance.
-  int _accumDx = 0;
-  int _accumDy = 0;
-
-  int _lastFlushMs = 0;
-  bool _sending = false;
-
-  // Higher sensitivity + consistent flush.
-  static const int _flushIntervalMs = 16; // ~60Hz
-  static const double _sensitivity = 3.4;
-
-  Future<void> _sendMove(int dx, int dy, {int wheel = 0, int? buttons}) async {
-    try {
-      await widget.backend.testMouseMove(
-        dx: dx,
-        dy: dy,
-        wheel: wheel,
-        buttons: buttons ?? _buttons,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mouse test failed: $e')),
-      );
-    }
-  }
-
-  int _scaleDelta(double d) {
-    // Scale and clamp into HID report range.
-    final v = (d * _sensitivity).round();
-    return v.clamp(-127, 127);
-  }
-
-  Future<void> _pressButton(int mask) async {
-    _buttons = mask;
-    await _sendMove(0, 0, buttons: _buttons);
-  }
-
-  Future<void> _releaseButtons() async {
-    _buttons = 0;
-    await _sendMove(0, 0, buttons: _buttons);
-  }
-
-  void _accumulateAndFlush(int dx, int dy, {bool force = false}) {
-    _accumDx += dx;
-    _accumDy += dy;
-
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (!force && (nowMs - _lastFlushMs) < _flushIntervalMs) return;
-    _lastFlushMs = nowMs;
-
-    if (_sending) return;
-
-    final sendDx = _accumDx.clamp(-127, 127);
-    final sendDy = _accumDy.clamp(-127, 127);
-    if (sendDx == 0 && sendDy == 0) return;
-
-    _accumDx -= sendDx;
-    _accumDy -= sendDy;
-
-    _sending = true;
-    unawaited(() async {
-      try {
-        await _sendMove(sendDx, sendDy);
-      } finally {
-        _sending = false;
-      }
-    }());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.mouse_outlined),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Mouse test',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Drag inside the pad to send relative movement. Tap/press to click.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            AspectRatio(
-              aspectRatio: 1.15,
-              child: _MousePad(
-                onPanStart: (p) => _lastPos = p,
-                onPanEnd: () {
-                  _lastPos = null;
-                  _accumulateAndFlush(0, 0, force: true);
-                },
-                onPanUpdate: (p) {
-                  final last = _lastPos;
-                  _lastPos = p;
-                  if (last == null) return;
-
-                  final delta = p - last;
-                  final dx = _scaleDelta(delta.dx);
-                  final dy = _scaleDelta(delta.dy);
-                  if (dx == 0 && dy == 0) return;
-
-                  _accumulateAndFlush(dx, dy);
-                },
-                onTapDown: () => _pressButton(1), /* left */
-                onTapUp: _releaseButtons,
-                onCancel: _releaseButtons,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.tonal(onPressed: () => _sendMove(-45, 0), child: const Text('Nudge left')),
-                FilledButton.tonal(onPressed: () => _sendMove(45, 0), child: const Text('Nudge right')),
-                FilledButton.tonal(onPressed: () => _sendMove(0, -45), child: const Text('Nudge up')),
-                FilledButton.tonal(onPressed: () => _sendMove(0, 45), child: const Text('Nudge down')),
-                FilledButton.tonal(onPressed: () => _sendMove(0, 0, wheel: -18), child: const Text('Wheel up')),
-                FilledButton.tonal(onPressed: () => _sendMove(0, 0, wheel: 18), child: const Text('Wheel down')),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: () async {
-                    await _pressButton(1);
-                    await Future<void>.delayed(const Duration(milliseconds: 35));
-                    await _releaseButtons();
-                  },
-                  icon: const Icon(Icons.touch_app_outlined),
-                  label: const Text('Left click'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: () async {
-                    await _pressButton(2);
-                    await Future<void>.delayed(const Duration(milliseconds: 35));
-                    await _releaseButtons();
-                  },
-                  icon: const Icon(Icons.mouse_outlined),
-                  label: const Text('Right click'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: () async {
-                    await _pressButton(4);
-                    await Future<void>.delayed(const Duration(milliseconds: 35));
-                    await _releaseButtons();
-                  },
-                  icon: const Icon(Icons.circle_outlined),
-                  label: const Text('Middle click'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MousePad extends StatelessWidget {
-  final void Function(Offset localPos) onPanStart;
-  final void Function(Offset localPos) onPanUpdate;
-  final VoidCallback onPanEnd;
-  final VoidCallback onTapDown;
-  final VoidCallback onTapUp;
-  final VoidCallback onCancel;
-
-  const _MousePad({
-    required this.onPanStart,
-    required this.onPanUpdate,
-    required this.onPanEnd,
-    required this.onTapDown,
-    required this.onTapUp,
-    required this.onCancel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTapDown: (_) => onTapDown(),
-        onTapCancel: onCancel,
-        onTapUp: (_) => onTapUp(),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (d) => onPanStart(d.localPosition),
-          onPanUpdate: (d) => onPanUpdate(d.localPosition),
-          onPanEnd: (_) => onPanEnd(),
-          onPanCancel: onPanEnd,
-          child: CustomPaint(
-            painter: _CrosshairPainter(color: cs.onSurface.withOpacity(0.22)),
-            child: const SizedBox.expand(),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CrosshairPainter extends CustomPainter {
-  final Color color;
-  _CrosshairPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    final r = math.min(size.width, size.height) * 0.40;
-
-    canvas.drawCircle(center, r, p);
-    canvas.drawLine(Offset(center.dx - r, center.dy), Offset(center.dx + r, center.dy), p);
-    canvas.drawLine(Offset(center.dx, center.dy - r), Offset(center.dx, center.dy + r), p);
-
-    final dot = Paint()..color = color.withOpacity(0.55);
-    canvas.drawCircle(center, 3.0, dot);
-  }
-
-  @override
-  bool shouldRepaint(covariant _CrosshairPainter oldDelegate) => oldDelegate.color != color;
 }
 
 class _IdentityRow extends StatelessWidget {
