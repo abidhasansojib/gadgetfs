@@ -12,6 +12,7 @@ import java.util.ArrayList
 import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.max
 import kotlin.math.min
 
 class GadgetManager(
