@@ -26,6 +26,18 @@ object Configfs {
         echo "configfs usb_gadget not found" >&2
         exit 2
       fi
+
+      cleanup_gadget() {
+        _TARGET="${'$'}1"
+        [ -d "${'$'}_TARGET" ] || return 0
+        (echo "" > "${'$'}_TARGET/UDC") 2>/dev/null || true
+        rm -f "${'$'}_TARGET"/configs/*/* 2>/dev/null || true
+        for _d in "${'$'}_TARGET"/configs/*/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/configs/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/functions/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        rmdir "${'$'}_TARGET" 2>/dev/null || true
+      }
     """.trimIndent()
 
     val mfg = shEscape(p.manufacturer)
@@ -51,22 +63,14 @@ object Configfs {
         exit 3
       fi
 
+      # Clean up any previously created gadgetfs instances to release kernel HID minor numbers
+      for _ex in "${'$'}CFGBASE"/gadgetfs*; do
+        [ -d "${'$'}_ex" ] && cleanup_gadget "${'$'}_ex"
+      done
+
       G="${'$'}CFGBASE/$gadget"
-      if [ -d "${'$'}G" ]; then
-        echo "Gadget already exists: ${'$'}G" >&2
-        (echo "" > "${'$'}G/UDC") 2>/dev/null || true
-      else
-        mkdir -p "${'$'}G"
-      fi
-
+      mkdir -p "${'$'}G"
       cd "${'$'}G"
-
-      # Reset previous config links/functions when reusing the same gadget dir.
-      # Otherwise switching Mouse <-> Keyboard <-> Composite can leave stale hid.usb*
-      # directories and config symlinks behind.
-      mkdir -p "configs/$cfg" 2>/dev/null || true
-      rm -f "configs/$cfg"/* 2>/dev/null || true
-      rm -rf functions/* 2>/dev/null || true
 
       echo $idVendor > idVendor
       echo $idProduct > idProduct
@@ -114,6 +118,21 @@ object Configfs {
 
       echo "${'$'}UDC_NAME" > UDC
       echo "Bound to UDC: ${'$'}UDC_NAME"
+
+      # Ensure character devices exist in /dev and have proper permissions
+      for fn in functions/hid.*; do
+        [ -d "${'$'}fn" ] || continue
+        if [ -f "${'$'}fn/dev" ]; then
+          DEV_PAIR=${'$'}(cat "${'$'}fn/dev" 2>/dev/null | tr -d '\r')
+          MAJOR=${'$'}{DEV_PAIR%:*}
+          MINOR=${'$'}{DEV_PAIR#*:}
+          NODE="/dev/hidg${'$'}MINOR"
+          if [ ! -c "${'$'}NODE" ] && [ -n "${'$'}MAJOR" ] && [ -n "${'$'}MINOR" ]; then
+            mknod "${'$'}NODE" c "${'$'}MAJOR" "${'$'}MINOR" 2>/dev/null || true
+          fi
+          chmod 666 "${'$'}NODE" 2>/dev/null || true
+        fi
+      done
       chmod 666 /dev/hidg* 2>/dev/null || true
     """.trimIndent()
 
@@ -128,13 +147,19 @@ object Configfs {
       if [ ! -d "${'$'}CFGBASE" ]; then
         CFGBASE="/sys/kernel/config/usb_gadget"
       fi
+      cleanup_gadget() {
+        _TARGET="${'$'}1"
+        [ -d "${'$'}_TARGET" ] || return 0
+        (echo "" > "${'$'}_TARGET/UDC") 2>/dev/null || true
+        rm -f "${'$'}_TARGET"/configs/*/* 2>/dev/null || true
+        for _d in "${'$'}_TARGET"/configs/*/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/configs/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/functions/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        rmdir "${'$'}_TARGET" 2>/dev/null || true
+      }
       G="${'$'}CFGBASE/$gadget"
-      if [ ! -d "${'$'}G" ]; then
-        exit 0
-      fi
-      (echo "" > "${'$'}G/UDC") 2>/dev/null || true
-      rm -f "${'$'}G/configs/c.1"/* 2>/dev/null || true
-      rm -rf "${'$'}G" 2>/dev/null || true
+      cleanup_gadget "${'$'}G"
     """.trimIndent() + "\n"
   }
 
@@ -145,8 +170,22 @@ object Configfs {
       if [ ! -d "${'$'}CFGBASE" ]; then
         CFGBASE="/sys/kernel/config/usb_gadget"
       fi
+      cleanup_gadget() {
+        _TARGET="${'$'}1"
+        [ -d "${'$'}_TARGET" ] || return 0
+        (echo "" > "${'$'}_TARGET/UDC") 2>/dev/null || true
+        rm -f "${'$'}_TARGET"/configs/*/* 2>/dev/null || true
+        for _d in "${'$'}_TARGET"/configs/*/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/configs/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/functions/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        for _d in "${'$'}_TARGET"/strings/*; do [ -d "${'$'}_d" ] && rmdir "${'$'}_d" 2>/dev/null || true; done
+        rmdir "${'$'}_TARGET" 2>/dev/null || true
+      }
       if [ -d "${'$'}CFGBASE" ]; then
         find "${'$'}CFGBASE" -maxdepth 2 -name UDC -type f -exec sh -c 'echo "" > "${'$'}1" 2>/dev/null || true' _ {} \;
+        for _ex in "${'$'}CFGBASE"/gadgetfs*; do
+          [ -d "${'$'}_ex" ] && cleanup_gadget "${'$'}_ex"
+        done
       fi
     """.trimIndent() + "\n"
   }

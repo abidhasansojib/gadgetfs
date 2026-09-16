@@ -208,15 +208,22 @@ class GadgetManager(
             return
         }
 
+        fun findHidDev(gDir: String, fnName: String, fallback: String): String {
+            val s = "cat /config/usb_gadget/$gDir/functions/$fnName/dev 2>/dev/null || cat /sys/kernel/config/usb_gadget/$gDir/functions/$fnName/dev 2>/dev/null"
+            val out = root.exec(s).stdout.trim()
+            val minor = out.substringAfter(':', "").trim()
+            return if (minor.isNotEmpty()) "/dev/hidg$minor" else fallback
+        }
+
         val kbdDev = when (profile.roleType.lowercase(Locale.US)) {
             "mouse" -> null
-            "keyboard" -> "/dev/hidg1"
-            else -> "/dev/hidg1" // composite: hidg1 is keyboard
+            "keyboard" -> findHidDev(gadgetDir, "hid.usb0", "/dev/hidg1")
+            else -> findHidDev(gadgetDir, "hid.usb0", "/dev/hidg1") // composite: hid.usb0 is keyboard
         }
         val mouseDev = when (profile.roleType.lowercase(Locale.US)) {
-            "mouse" -> "/dev/hidg1"
+            "mouse" -> findHidDev(gadgetDir, "hid.usb0", "/dev/hidg1")
             "keyboard" -> null
-            else -> "/dev/hidg2" // composite: hidg2 is mouse
+            else -> findHidDev(gadgetDir, "hid.usb1", "/dev/hidg2") // composite: hid.usb1 is mouse
         }
 
         prefs.setActive(profile.id, profile.roleType, gadgetDir, kbdDev, mouseDev)
